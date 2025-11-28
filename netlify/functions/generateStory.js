@@ -25,7 +25,7 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { latitude, longitude, previousWords, storyContext } = JSON.parse(event.body);
+    const { latitude, longitude, previousWords, storyContext, getWordsOnly } = JSON.parse(event.body);
 
     // Get API keys from environment variables
     const w3wKey = process.env.WHAT3WORDS_API_KEY;
@@ -43,11 +43,24 @@ exports.handler = async (event, context) => {
 
     const words = w3wData.words; // e.g., "filled.count.soap"
     const wordArray = words.split('.');
+    
+    // If only getting words (no AI generation), return early
+    if (getWordsOnly) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          words: wordArray,
+          fullWords: words
+        })
+      };
+    }
 
-    // 2. Generate story with AI
-    const prompt = previousWords 
-      ? `Continue this story. Previous location words were: ${previousWords}. New location words are: ${wordArray.join(', ')}. Previous story: ${storyContext}\n\nWrite 2-3 sentences continuing the story, naturally incorporating the new words: ${wordArray.join(', ')}.`
-      : `Write the beginning of a story (2-3 sentences) that incorporates these three words naturally: ${wordArray.join(', ')}.`;
+    // 2. Generate story with AI (reduced token count)
+    // Only send minimal context (last segment) to reduce token usage
+    const prompt = previousWords && storyContext
+      ? `Continue this story. The story so far: "${storyContext}" New location: ${wordArray.join(', ')}. Write 1-2 sentences continuing the story, naturally incorporating these words: ${wordArray.join(', ')}.`
+      : `Write the beginning of a story (1-2 sentences) that incorporates these three words naturally: ${wordArray.join(', ')}.`;
 
     const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -58,7 +71,7 @@ exports.handler = async (event, context) => {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 200,
+        max_tokens: 100, // Reduced from 200 to 100 for shorter responses
         messages: [{
           role: 'user',
           content: prompt
