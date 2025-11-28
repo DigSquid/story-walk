@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Story</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95em;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 600;
+            width: 100%;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #location-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 0.9em;
+            color: #666;
+            display: none;
+        }
+        
+        #location-info.visible {
+            display: block;
+        }
+        
+        .words {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        
+        #story {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 20px;
+            min-height: 120px;
+            line-height: 1.8;
+            display: none;
+        }
+        
+        #story.visible {
+            display: block;
+        }
+        
+        #story p {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        #story p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .loading {
+            color: #999;
+            font-style: italic;
+            text-align: center;
+        }
+        
+        .error {
+            color: #e74c3c;
+            background: #fadbd8;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+        
+        .segment {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @media (max-width: 640px) {
+            .container {
+                padding: 25px;
+            }
+            
+            h1 {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📍 Location Story</h1>
+        <p class="subtitle">Your journey becomes a story, three words at a time</p>
+        
+        <button id="start-btn">Start Your Story</button>
+        
+        <div id="location-info"></div>
+        <div id="story"></div>
+    </div>
+
+    <script>
+        // Netlify Functions automatically get deployed to /.netlify/functions/
+        const FUNCTION_URL = '/.netlify/functions/generateStory';
+        
+        let watchId = null;
+        let currentWords = null;
+        let storyContext = '';
+        let isFirstSegment = true;
+
+        const startBtn = document.getElementById('start-btn');
+        const storyDiv = document.getElementById('story');
+        const locationInfo = document.getElementById('location-info');
+
+        startBtn.addEventListener('click', startStory);
+
+        function startStory() {
+            if (!navigator.geolocation) {
+                showError('Geolocation is not supported by your browser');
+                return;
+            }
+
+            startBtn.disabled = true;
+            startBtn.textContent = 'Finding your location...';
+            storyDiv.classList.add('visible');
+            storyDiv.innerHTML = '<p class="loading">Getting your location...</p>';
+
+            watchId = navigator.geolocation.watchPosition(
+                handleLocationUpdate,
+                handleLocationError,
+                { 
+                    enableHighAccuracy: true, 
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+        }
+
+        async function handleLocationUpdate(position) {
+            const { latitude, longitude } = position.coords;
+            
+            try {
+                startBtn.textContent = 'Generating story...';
+                
+                const response = await fetch(FUNCTION_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        latitude,
+                        longitude,
+                        previousWords: currentWords ? currentWords.join('.') : null,
+                        storyContext: storyContext
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to generate story');
+                }
+
+                const data = await response.json();
+                
+                // Check if we've moved to a new cell
+                const newWords = data.fullWords;
+                if (currentWords && newWords === currentWords.join('.')) {
+                    return; // Same location, don't update
+                }
+
+                currentWords = data.words;
+                
+                locationInfo.classList.add('visible');
+                locationInfo.innerHTML = `
+                    <div><strong>Current location:</strong> <span class="words">${data.fullWords}</span></div>
+                    <div style="margin-top: 5px; font-size: 0.85em;">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</div>
+                `;
+
+                if (isFirstSegment) {
+                    storyContext = data.storySegment;
+                    storyDiv.innerHTML = `<p class="segment">${data.storySegment}</p>`;
+                    isFirstSegment = false;
+                    startBtn.textContent = 'Story Started! Move to continue...';
+                } else {
+                    storyContext += ' ' + data.storySegment;
+                    const newParagraph = document.createElement('p');
+                    newParagraph.className = 'segment';
+                    newParagraph.textContent = data.storySegment;
+                    storyDiv.appendChild(newParagraph);
+                    startBtn.textContent = 'Story continuing...';
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError(`Error: ${error.message}`);
+                startBtn.disabled = false;
+                startBtn.textContent = 'Try Again';
+            }
+        }
+
+        function handleLocationError(error) {
+            let message = 'Error getting location: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    message += 'Please allow location access';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message += 'Location unavailable';
+                    break;
+                case error.TIMEOUT:
+                    message += 'Request timed out';
+                    break;
+                default:
+                    message += error.message;
+            }
+            showError(message);
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start Your Story';
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            storyDiv.classList.add('visible');
+            storyDiv.innerHTML = '';
+            storyDiv.appendChild(errorDiv);
+        }
+    </script>
+</body>
+</html>
