@@ -183,11 +183,11 @@
 </head>
 <body>
     <div class="container">
-        <h1>📍 Story Walk</h1>
-        <p class="subtitle">Your journey becomes a story, three words at a time</p>
+        <h1>🚶 Story Walk</h1>
+        <p class="subtitle">Make a story as you walk, using What Three Words.</p>
         
         <button id="start-btn">Start Your Story</button>
-        <button id="submit-btn">Generate Story Segment</button>
+        <button id="submit-btn">Generate Next Step</button>
         
         <div id="location-info"></div>
         <div id="story"></div>
@@ -201,11 +201,14 @@
         let watchId = null;
         let currentWords = null;
         let lastThreeWords = null;
+        let lastUsedWords = null; // Track the last words used for story generation
+        let usedWords = new Set(); // Track all used word combinations
         let lastStorySegment = ''; // Keep only the last segment for context
         let isFirstSegment = true;
         let lastRequestTime = 0;
         let currentLatitude = null;
         let currentLongitude = null;
+        let rateLimitTimer = null;
 
         const startBtn = document.getElementById('start-btn');
         const submitBtn = document.getElementById('submit-btn');
@@ -276,6 +279,7 @@
                     
                     startBtn.style.display = 'none';
                     submitBtn.classList.add('visible');
+                    updateButtonState();
                 }
 
             } catch (error) {
@@ -328,6 +332,8 @@
                 const data = await response.json();
                 lastRequestTime = now;
                 lastStorySegment = data.storySegment;
+                lastUsedWords = data.fullWords;
+                usedWords.add(data.fullWords);
                 
                 // Bold the keywords in the story segment
                 let storyWithBold = data.storySegment;
@@ -346,8 +352,8 @@
                     storyDiv.appendChild(newParagraph);
                 }
                 
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Generate Next Segment';
+                updateButtonState();
+                startRateLimitTimer();
 
             } catch (error) {
                 console.error('Error:', error);
@@ -355,6 +361,43 @@
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Generate Story Segment';
             }
+        }
+        
+        function updateButtonState() {
+            const now = Date.now();
+            const timeSinceLastRequest = now - lastRequestTime;
+            const isRateLimited = timeSinceLastRequest < RATE_LIMIT_MS && lastRequestTime > 0;
+            const wordsAlreadyUsed = usedWords.has(lastThreeWords);
+            
+            if (isRateLimited) {
+                submitBtn.disabled = true;
+                const secondsRemaining = Math.ceil((RATE_LIMIT_MS - timeSinceLastRequest) / 1000);
+                submitBtn.textContent = `Wait ${secondsRemaining}s...`;
+            } else if (wordsAlreadyUsed) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Words Already Used - Move to New Location';
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = isFirstSegment ? 'Generate Story Segment' : 'Generate Next Segment';
+            }
+        }
+        
+        function startRateLimitTimer() {
+            if (rateLimitTimer) {
+                clearInterval(rateLimitTimer);
+            }
+            
+            rateLimitTimer = setInterval(() => {
+                const now = Date.now();
+                const timeSinceLastRequest = now - lastRequestTime;
+                
+                if (timeSinceLastRequest >= RATE_LIMIT_MS) {
+                    clearInterval(rateLimitTimer);
+                    rateLimitTimer = null;
+                }
+                
+                updateButtonState();
+            }, 1000);
         }
         
         function showRateLimitMessage(message) {
